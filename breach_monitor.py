@@ -8,37 +8,62 @@ from pathlib import Path
 from typing import Dict, Any, List
 import requests
 from dotenv import load_dotenv
+from datetime import date
 
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
 # Create a .env file with these values populated
 DEHASHED_API_KEY = os.getenv("DEHASHED_API_KEY")
 TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL")
 
-# Folder to store snapshot data
-DATA_DIR = Path("data")
-DATA_DIR.mkdir(exist_ok=True)
-
 # ================================
 # CONFIG: assets to monitor
 # type determines query payload
 # ================================
-ASSETS = [
-    {"key": "example_domain", "type": "domain", "value": "example.com"},
-    {"key": "example_email", "type": "email", "value": "admin@example.com"},
-]
+def load_assets_from_file(path: str) -> list[dict]:
+    assets = []
 
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+
+            # Skip empty lines or comments
+            if not line or line.startswith("#"):
+                continue
+
+            try:
+                key, asset_type, value = [x.strip() for x in line.split(",", 2)]
+                assets.append({
+                    "key": key,
+                    "type": asset_type,
+                    "value": value,
+                })
+            except ValueError:
+                print(f"[WARN] Invalid asset line skipped: {line}")
+
+    return assets
+
+ASSETS_FILE = BASE_DIR / "assets.txt"
+ASSETS = load_assets_from_file(ASSETS_FILE)
+
+if not ASSETS:
+    raise RuntimeError("No assets loaded. Check assets.txt")
+
+# Folder to store snapshot data
+DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
 
 # ================================
 # Teams Webhook Alert
 # ================================
-def send_teams_webhook(message: str):
+def send_teams_webhook(text: str, atype: str, message: str):
     if not TEAMS_WEBHOOK_URL:
         print("TEAMS_WEBHOOK_URL not set. Skipping alert.")
         return
 
     try:
-        payload = {"text": message}
+        payload = {"text": text, "type": atype, "message": message}
         resp = requests.post(
             TEAMS_WEBHOOK_URL,
             json=payload,
@@ -132,6 +157,8 @@ def diff_entries(old: List[Dict[str, Any]], new: List[Dict[str, Any]]) -> List[D
 # Main Logic
 # ================================
 def run_monitor():
+    t = date.today()
+    print(t)
     for asset in ASSETS:
         asset_key = asset["key"]
         asset_type = asset["type"]
@@ -153,12 +180,10 @@ def run_monitor():
             print(f"[!] FOUND {len(additions)} NEW BREACHED RECORDS")
 
             for entry in additions:
-                msg = (
-                    f"ALERT — New breached credentials found for {asset_value}\n"
-                    f"Type: {asset_type}\n"
-                    f"Entry: {json.dumps(entry, indent=2)}"
-                )
-                send_teams_webhook(msg)
+                txt = (f"ALERT - New breached credentials found for {asset_value}\n")
+                tp = (f"Type: {asset_type}\n")
+                msg = (f"Entry: {json.dumps(entry, indent=2)}")
+                send_teams_webhook(txt,tp,msg)
 
             # Only update snapshot if new items exist
             save_snapshot(asset_key, new_entries)
