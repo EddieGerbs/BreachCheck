@@ -1,0 +1,7 @@
+# key,type,value
+
+# Domain Example:
+mySite,domain,example.com
+
+# Email Exmaple:
+myUser,email,example@gmail.com
